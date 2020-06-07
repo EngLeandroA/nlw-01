@@ -8,7 +8,7 @@ import axios from 'axios';
 
 interface IBGEUFResponse {
   sigla: string,
-  nome: string;
+  nome: string,
 }
 
 interface IBGECityResponse {

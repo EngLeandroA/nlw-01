@@ -1,10 +1,11 @@
-import React, { useEffect, useState, ChangeEvent, FormEvent} from 'react';
+import React, { useEffect, useState, ChangeEvent, FormEvent } from 'react';
 import { Link, useHistory } from 'react-router-dom';
-import { FiArrowLeft } from 'react-icons/fi';
+import { FiArrowLeft, FiCheckCircle } from 'react-icons/fi';
 import { Map, TileLayer, Marker } from 'react-leaflet'
 import { LeafletMouseEvent } from 'leaflet'
 import api from '../../services/api';
 import axios from 'axios';
+import * as yup from 'yup';
 import Dropzone from '../../components/Dropzone'
 
 import './styles.css';
@@ -19,7 +20,8 @@ interface Item {
 }
 
 interface IBGEUFResponse {
-    sigla: string;
+    sigla: string,
+    nome: string,
 }
 
 interface IBGECityResponse {
@@ -29,7 +31,7 @@ interface IBGECityResponse {
 const CreatePoint = () => {
 
     const [items, setItems] = useState<Item[]>([]);
-    const [ufs, setUfs] = useState<string[]>([]);
+    const [ufs, setUfs] = useState<IBGEUFResponse[]>([]);
     const [cities, setCities] = useState<string[]>([]);
 
     const [initialPosition, setInitialPosition] = useState<[number,number]>([0, 0]);
@@ -45,6 +47,8 @@ const CreatePoint = () => {
     const [selectedItems, setSelectedItems] = useState<number[]>([]);
     const [selectedPosition, setSelectedPosition] = useState<[number,number]>([0, 0]);
     const [selectedFile, setSelectedFile] = useState<File>();
+    
+    const [conclusion, setConclusion] = useState<boolean>(true);
 
     const history = useHistory();
 
@@ -64,7 +68,17 @@ const CreatePoint = () => {
 
     useEffect(() => {
         axios.get<IBGEUFResponse[]>('https://servicodados.ibge.gov.br/api/v1/localidades/estados').then(response => {
-            const ufInitials = response.data.map(uf => uf.sigla);
+            const ufInitials =  [{} as IBGEUFResponse];
+
+            ufInitials.splice(0, 1); // Remover o primeiro item vazio
+            
+              response.data.sort((a, b) => (a.nome > b.nome) ? 1 : -1).map(uf =>
+                ufInitials.push(
+                  {
+                    sigla: uf.sigla, 
+                    nome: uf.nome,
+                  }
+                ));
 
             setUfs(ufInitials);
         });
@@ -147,16 +161,65 @@ const CreatePoint = () => {
             data.append('image', selectedFile)
         }
         
+        const valLatitude = latitude === 0 ? null : latitude
+        const valLongitude = longitude === 0 ? null : longitude
+        
+        const schema = yup.object().shape({
+            name: yup.string().required('Favor inserir o nome do estabelecimento'),
+            email: yup.string().required('Favor inserir o e-mail do estabelecimento').email('Favor inserir o e-mail correto'),
+            whatsapp: yup.string().required('Favor inserir o Whatsapp do estabelecimento').typeError('Favor digitar apenas numeros no Whatsapp'),
+            latitude: yup.number().required().typeError('Favor inserir o selecionar a latitude do estabelecimento'),
+            longitude: yup.number().required().typeError('Favor inserir o selecionar a longitude do estabelecimento'),
+            city: yup.string().required('Favor inserir a cidade do estabelecimento'),
+            uf: yup.string().required('Favor inserir o UF do estabelecimento').max(2),
+            items: yup.string().required('Favor inserir os itens do estabelecimento'),
+        })
+
+        schema.validate({
+            name: name, 
+            email: email,
+            whatsapp: whatsapp,
+            latitude: valLatitude,
+            longitude: valLongitude,
+            city: city,
+            uf: uf,
+            items: items
+        }, {abortEarly: false})
+        .then(function (valid) {
+            
+            setConclusion(true);
+
+            savedata(data);
+            
+            setTimeout(() => {
+                setConclusion(false);
+
+                history.push('/');
+              }, 2000);
+             
+        })
+        .catch(function (erro) {
+            alert(erro.errors);
+            
+        })    
+    }
+
+    async function savedata(data: FormData) {
+
         await api.post('points', data);
 
-        alert('Ponto de coleta criado');
-
-        history.push('/');
     }
-    
+
 
   return (
+
       <div id="page-create-point">
+
+          <div className={(conclusion) ? 'end-show' : 'end-hide'}>
+            <h1><FiCheckCircle /></h1>
+            <h2>Cadastro concluído!</h2>
+          </div>
+          
           <header>
               <img src={logo} alt="Ecoleta" />
               <Link to="/">
@@ -214,14 +277,16 @@ const CreatePoint = () => {
                       <span>Selecione o endereço no mapa</span>
                   </legend>
 
-                  <Map center={initialPosition} zoom={15} onClick={handleMapClick}>
-                    <TileLayer
-                        attribution='&amp;copy <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
+                  <div className={(conclusion) ? 'map-hiden' : 'map'}>
+                    <Map center={initialPosition} zoom={15} onClick={handleMapClick}>
+                        <TileLayer
+                            attribution='&amp;copy <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                        />
 
-                    <Marker position={selectedPosition} />
-                  </Map>
+                        <Marker position={selectedPosition} />
+                    </Map>
+                  </div>
 
                   <div className="field-group">
 
@@ -235,7 +300,7 @@ const CreatePoint = () => {
                           >
                               <option value="0">Selecione uma UF</option>
                               {ufs.map(uf => (
-                                  <option key={uf} value={uf}>{uf}</option>
+                                  <option key={uf.sigla} value={uf.sigla}>{uf.nome}</option>
                               ))}
                           </select>
                       </div>
@@ -282,6 +347,7 @@ const CreatePoint = () => {
                   Cadastrar ponto de coleta
               </button>
           </form>
+          
       </div>
   )
 }
